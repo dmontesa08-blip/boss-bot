@@ -188,18 +188,31 @@ async def boss_tod(inter: discord.Interaction, name: str, time: str = None):
 
     now = utcnow()
 
+    # -------- FIXED TOD LOGIC --------
     if time:
         hh, mm = map(int, time.split(":"))
+
+        # Start with today HH:MM
         tod = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+
+        # If that time is in the future → TOD was yesterday
         if tod > now:
+            tod -= timedelta(days=1)
+
+        # Extra protection for midnight edge case
+        if (now - tod).total_seconds() < 60:
             tod -= timedelta(days=1)
     else:
         tod = now
+    # ----------------------------------
 
     data["bosses"][name]["tod"] = iso(tod)
     save_data(data)
 
-    next_spawn = calculate_next_spawn(iso(tod), data["bosses"][name]["respawn_hours"])
+    next_spawn = calculate_next_spawn(
+        data["bosses"][name]["tod"],
+        data["bosses"][name]["respawn_hours"]
+    )
 
     await inter.response.send_message(
         f"✅ TOD saved.\nNext spawn: <t:{int(next_spawn.timestamp())}:F>",
