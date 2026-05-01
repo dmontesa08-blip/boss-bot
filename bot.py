@@ -51,13 +51,9 @@ def create_embed():
         spawn_time = datetime.fromisoformat(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
 
-        # Only show SPAWNING NOW in the real 60s window
-        if 0 <= remaining <= 60:
+        # ✅ Use spawned flag, NOT time
+        if info.get("spawned"):
             status = "🔥 **SPAWNING NOW**"
-        elif remaining < 0:
-            # Already passed, waiting for next cycle update
-            total_minutes = int(abs(remaining) // 60)
-            status = f"⌛ Waiting next cycle ({total_minutes}m ago)"
         else:
             total_minutes = int(remaining // 60)
             hours = total_minutes // 60
@@ -115,7 +111,7 @@ async def check_alerts():
 
             info["next_spawn"] = next_spawn.isoformat()
             info["warned"] = False
-            info["spawned"] = False
+            info["spawned"] = False  # ← important
             save_data(data)
             continue
 
