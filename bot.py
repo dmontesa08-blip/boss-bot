@@ -192,7 +192,8 @@ async def boss_tod(interaction: discord.Interaction, name: str, time: str = None
 @client.event
 async def on_ready():
     await tree.sync()
-    update_board.start()
+    if not update_board.is_running():
+        update_board.start()
     print(f"Logged in as {client.user}")
 
 
