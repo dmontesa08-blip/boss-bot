@@ -1,0 +1,70 @@
+{
+    "1452701012086227090": {
+        "bosses": {
+            "venatus": {
+                "respawn": 10,
+                "tod": "2026-05-01T15:47:00",
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "viorent": {
+                "respawn": 10,
+                "tod": "2026-05-01T15:50:00",
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "ego": {
+                "respawn": 21,
+                "tod": "2026-05-01T07:50:00",
+                "alert_10": false,
+                "alert_spawn": false
+            }
+        },
+        "channel": 1499286823858602104,
+        "message": 1499704126236397638,
+        "role": 1499311613553938473
+    },
+    "1454405109390770295": {
+        "bosses": {
+            "venatus": {
+                "respawn": 10,
+                "tod": "2026-05-01T15:47:00",
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "viorent": {
+                "respawn": 10,
+                "tod": "2026-05-01T15:50:00",
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "ego": {
+                "respawn": 21,
+                "tod": "2026-05-01T07:50:00",
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "livera": {
+                "respawn": 24,
+                "tod": null,
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "araneo": {
+                "respawn": 24,
+                "tod": null,
+                "alert_10": false,
+                "alert_spawn": false
+            },
+            "undomiel": {
+                "respawn": 24,
+                "tod": null,
+                "alert_10": false,
+                "alert_spawn": false
+            }
+        },
+        "channel": 1499715956174356560,
+        "message": 1499716041155154060,
+        "role": 1461783191055761504
+    }
+}
