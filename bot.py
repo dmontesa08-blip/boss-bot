@@ -53,28 +53,28 @@ def create_embed():
         timestamp=utcnow()
     )
 
+    now = utcnow()
+
     if not data["bosses"]:
         embed.description = "No bosses added yet."
         return embed
-
-    now = utcnow()
 
     for name, info in data["bosses"].items():
         spawn_time = parse_time(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
 
-        total_minutes = max(0, int(remaining // 60))
-        hours = total_minutes // 60
-        minutes = total_minutes % 60
-
-        status = f"⏳ {hours}h {minutes}m" if hours else f"⏳ {minutes}m"
+        # SPAWNING NOW only during 60s spawn window and flagged
+        if info.get("spawned", False) and 0 < remaining <= 60:
+            status = "🔥 **SPAWNING NOW**"
+        else:
+            total_minutes = max(0, int(remaining // 60))
+            hours = total_minutes // 60
+            minutes = total_minutes % 60
+            status = f"⏳ {hours}h {minutes}m" if hours else f"⏳ {minutes}m"
 
         embed.add_field(
             name=name,
-            value=(
-                f"**Spawn:** <t:{int(spawn_time.timestamp())}:F>\n"
-                f"**Time Left:** {status}"
-            ),
+            value=f"**Spawn:** <t:{int(spawn_time.timestamp())}:F>\n**Time Left:** {status}",
             inline=False
         )
 
@@ -113,26 +113,24 @@ async def check_alerts():
         spawn_time = parse_time(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
 
-        # Roll to next cycle immediately if passed
-        if remaining <= 0:
-            respawn = timedelta(hours=info["respawn_hours"])
-            next_spawn = spawn_time + respawn
-
-            info["next_spawn"] = iso_utc(next_spawn)
-            info["warned"] = False
-            info["spawned"] = False
-            continue
-
-        # 10 min warning
-        if 540 < remaining <= 600 and not info.get("warned"):
-            await channel.send(f"⚠️ **{name} spawns in 10 minutes!**")
-            info["warned"] = True
-
-        # Spawn alert
+        # SPAWN ALERT
         if 0 < remaining <= 60 and not info.get("spawned"):
             mention = f"<@&{role_id}>" if role_id else ""
             await channel.send(f"🔥 {mention} **{name} is SPAWNING NOW!**")
             info["spawned"] = True
+
+        # 10-MIN WARNING
+        if 540 < remaining <= 600 and not info.get("warned"):
+            await channel.send(f"⚠️ **{name} spawns in 10 minutes!**")
+            info["warned"] = True
+
+        # AUTO-ROLL TO NEXT SPAWN
+        if remaining <= 0:
+            respawn = timedelta(hours=info["respawn_hours"])
+            next_spawn = spawn_time + respawn
+            info["next_spawn"] = iso_utc(next_spawn)
+            info["warned"] = False
+            info["spawned"] = False
 
     save_data(data)
 
