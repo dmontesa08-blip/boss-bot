@@ -1,12 +1,11 @@
 import os
 import json
 import time
-import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import discord
+from discord.ext import commands, tasks
 from discord import app_commands
-from discord.ext import tasks, commands
 
 TOKEN = os.getenv("TOKEN")
 DATA_FILE = "data.json"
@@ -41,11 +40,13 @@ def ts(unix: int) -> str:
 
 
 def tod_to_unix(hhmm: str) -> int:
-    # TOD is ALWAYS today (UTC)
+    """
+    Interpret HH:MM as the most recent time that already happened.
+    """
     now = datetime.now(timezone.utc)
     hh, mm = map(int, hhmm.split(":"))
 
-    tod_today = datetime(
+    tod = datetime(
         year=now.year,
         month=now.month,
         day=now.day,
@@ -55,7 +56,11 @@ def tod_to_unix(hhmm: str) -> int:
         tzinfo=timezone.utc
     )
 
-    return int(tod_today.timestamp())
+    # If TOD is in the future → it was yesterday
+    if tod > now:
+        tod -= timedelta(days=1)
+
+    return int(tod.timestamp())
 
 
 # -------------------- Bot --------------------
@@ -76,7 +81,6 @@ async def update_board():
         return
 
     embed = discord.Embed(title="Boss Timer Board", color=discord.Color.red())
-
     now = int(time.time())
     lines = []
 
@@ -126,12 +130,10 @@ async def alert_loop():
         role = channel.guild.get_role(boss["role_id"])
         remaining = boss["next_spawn"] - now
 
-        # 10-min warning
         if 590 <= remaining <= 610 and not boss.get("warned"):
             await channel.send(f"{role.mention} ⚠️ **{name}** spawns in 10 minutes!")
             boss["warned"] = True
 
-        # Spawn ping
         if -10 <= remaining <= 10 and not boss.get("spawned"):
             await channel.send(f"{role.mention} 🔥 **{name}** has spawned!")
             boss["spawned"] = True
@@ -172,12 +174,7 @@ async def alert_channel(interaction: discord.Interaction, channel: discord.TextC
 
 
 @tree.command(name="boss_add", description="Add a boss with role")
-async def boss_add(
-    interaction: discord.Interaction,
-    name: str,
-    respawn_hours: int,
-    role: discord.Role
-):
+async def boss_add(interaction: discord.Interaction, name: str, respawn_hours: int, role: discord.Role):
     data["bosses"][name] = {
         "respawn_hours": respawn_hours,
         "role_id": role.id
@@ -186,7 +183,7 @@ async def boss_add(
     await interaction.response.send_message(f"{name} added.", ephemeral=True)
 
 
-@tree.command(name="boss_tod", description="Set TOD HH:MM (always today)")
+@tree.command(name="boss_tod", description="Set TOD HH:MM")
 async def boss_tod(interaction: discord.Interaction, name: str, time_hhmm: str):
     if name not in data["bosses"]:
         await interaction.response.send_message("Boss not found.", ephemeral=True)
@@ -202,7 +199,7 @@ async def boss_tod(interaction: discord.Interaction, name: str, time_hhmm: str):
     save_data(data)
 
     await interaction.response.send_message(
-        f"TOD set.\nNext Spawn: {ts(next_spawn)}",
+        f"TOD saved.\nNext Spawn: {ts(next_spawn)}",
         ephemeral=True
     )
 
