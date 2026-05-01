@@ -29,16 +29,10 @@ BOARD_MESSAGE_ID = None
 # ---------- Helpers ----------
 
 def ts(unix_ts: float) -> str:
-    """Discord timestamp (absolute + relative)."""
     u = int(unix_ts)
     return f"<t:{u}:F> (<t:{u}:R>)"
 
 def parse_tod_to_utc_timestamp(tod_hhmm: str, respawn_hours: int) -> float:
-    """
-    Interpret the typed TOD as 'today at HH:MM' in server local time.
-    If that clock time is in the future, it must have been yesterday.
-    Return next spawn as UTC unix timestamp.
-    """
     now_local = datetime.now()
     h, m = map(int, tod_hhmm.split(":"))
 
@@ -48,8 +42,7 @@ def parse_tod_to_utc_timestamp(tod_hhmm: str, respawn_hours: int) -> float:
         tod_local -= timedelta(days=1)
 
     next_spawn_local = tod_local + timedelta(hours=respawn_hours)
-    next_spawn_utc = next_spawn_local.astimezone(timezone.utc)
-    return next_spawn_utc.timestamp()
+    return next_spawn_local.astimezone(timezone.utc).timestamp()
 
 # ---------- Discord ----------
 
@@ -60,9 +53,9 @@ tree = app_commands.CommandTree(client)
 @client.event
 async def on_ready():
     await tree.sync()
-    print("Bot ready.")
     update_board.start()
     alert_loop.start()
+    print("Bot ready.")
 
 # ---------- Commands ----------
 
@@ -108,7 +101,7 @@ async def boss_tod(interaction: discord.Interaction, name: str, tod: str):
         ephemeral=True
     )
 
-# ---------- Board (display only) ----------
+# ---------- Board ----------
 
 @tasks.loop(seconds=60)
 async def update_board():
@@ -123,11 +116,11 @@ async def update_board():
 
     for name, boss in bosses.items():
         if boss["next_spawn"]:
-            embed.add_field(
-                name=name,
-                value=f"Spawn: {ts(boss['next_spawn'])}",
-                inline=False
-            )
+            value = f"Spawn: {ts(boss['next_spawn'])}"
+        else:
+            value = "⏳ Waiting for TOD"
+
+        embed.add_field(name=name, value=value, inline=False)
 
     global BOARD_MESSAGE_ID
 
@@ -142,7 +135,7 @@ async def update_board():
         msg = await channel.send(embed=embed)
         BOARD_MESSAGE_ID = msg.id
 
-# ---------- Alerts (only place time moves) ----------
+# ---------- Alerts ----------
 
 @tasks.loop(seconds=30)
 async def alert_loop():
@@ -159,7 +152,6 @@ async def alert_loop():
         if not boss["next_spawn"]:
             continue
 
-        # Auto-cycle
         while now >= boss["next_spawn"]:
             boss["next_spawn"] += boss["respawn_hours"] * 3600
             boss["warned"] = False
