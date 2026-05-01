@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 TOKEN = os.getenv("TOKEN")
 DATA_FILE = "data.json"
-USER_TIMEZONE_OFFSET = 8  # <<< CHANGE
+USER_TIMEZONE_OFFSET = 8  # change if not UTC+8
 
 # ---------- Helpers ----------
 
