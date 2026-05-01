@@ -33,16 +33,20 @@ def ts(unix_ts: float) -> str:
     return f"<t:{u}:F> (<t:{u}:R>)"
 
 def parse_tod_to_utc_timestamp(tod_hhmm: str, respawn_hours: int) -> float:
-    now_local = datetime.now()
+    # Always anchor to UTC date, not server local
+    now_utc = datetime.now(timezone.utc)
+
     h, m = map(int, tod_hhmm.split(":"))
 
-    tod_local = now_local.replace(hour=h, minute=m, second=0, microsecond=0)
+    # Build TOD in UTC day context
+    tod_utc = now_utc.replace(hour=h, minute=m, second=0, microsecond=0)
 
-    if tod_local > now_local:
-        tod_local -= timedelta(days=1)
+    # If that clock time is in the future, it was yesterday
+    if tod_utc > now_utc:
+        tod_utc -= timedelta(days=1)
 
-    next_spawn_local = tod_local + timedelta(hours=respawn_hours)
-    return next_spawn_local.astimezone(timezone.utc).timestamp()
+    next_spawn_utc = tod_utc + timedelta(hours=respawn_hours)
+    return next_spawn_utc.timestamp()
 
 # ---------- Discord ----------
 
