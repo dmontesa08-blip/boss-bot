@@ -14,7 +14,7 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 
-# ---------------- DATA ----------------
+# ---------- DATA ----------
 
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -39,22 +39,20 @@ def iso(dt):
     return dt.astimezone(timezone.utc).isoformat()
 
 
-# ---------------- SPAWN MATH (NO DRIFT) ----------------
+# ---------- EXACT SPAWN MATH (NO DRIFT) ----------
 
 def calculate_next_spawn(tod_iso, respawn_hours):
     tod = datetime.fromisoformat(tod_iso).astimezone(timezone.utc)
     now = utcnow()
 
-    cycle_seconds = respawn_hours * 3600
+    cycle = respawn_hours * 3600
     elapsed = (now - tod).total_seconds()
 
-    cycles = max(0, math.floor(elapsed / cycle_seconds) + 1)
-    next_spawn = tod + timedelta(seconds=cycle_seconds * cycles)
-
-    return next_spawn
+    cycles = max(0, math.floor(elapsed / cycle) + 1)
+    return tod + timedelta(seconds=cycle * cycles)
 
 
-# ---------------- EMBED ----------------
+# ---------- EMBED ----------
 
 def create_embed():
     embed = discord.Embed(
@@ -68,6 +66,16 @@ def create_embed():
         return embed
 
     for name, info in data["bosses"].items():
+
+        # TOD not set yet
+        if not info["tod"]:
+            embed.add_field(
+                name=name,
+                value="⛔ Waiting for TOD (`/boss_tod`)",
+                inline=False
+            )
+            continue
+
         next_spawn = calculate_next_spawn(info["tod"], info["respawn_hours"])
         remaining = (next_spawn - utcnow()).total_seconds()
 
@@ -91,7 +99,7 @@ def create_embed():
     return embed
 
 
-# ---------------- LOOP ----------------
+# ---------- LOOP ----------
 
 @tasks.loop(minutes=1)
 async def board_loop():
@@ -108,10 +116,17 @@ async def update_board():
 
 
 async def send_alerts():
+    if not data["channel_id"]:
+        return
+
     ch = client.get_channel(data["channel_id"])
     role = data.get("role_id")
 
     for name, info in data["bosses"].items():
+
+        if not info["tod"]:
+            continue
+
         next_spawn = calculate_next_spawn(info["tod"], info["respawn_hours"])
         remaining = (next_spawn - utcnow()).total_seconds()
 
@@ -134,7 +149,7 @@ async def send_alerts():
     save_data(data)
 
 
-# ---------------- COMMANDS ----------------
+# ---------- COMMANDS ----------
 
 @tree.command(name="boss_channel")
 async def boss_channel(inter: discord.Interaction):
@@ -143,7 +158,7 @@ async def boss_channel(inter: discord.Interaction):
     msg = await inter.channel.send(embed=create_embed())
     data["message_id"] = msg.id
     save_data(data)
-    await inter.followup.send("✅ Boss board created.", ephemeral=True)
+    await inter.followup.send("✅ Boss board created here.", ephemeral=True)
 
 
 @tree.command(name="boss_role")
@@ -157,12 +172,12 @@ async def boss_role(inter: discord.Interaction, role: discord.Role):
 async def boss_add(inter: discord.Interaction, name: str, respawn_hours: int):
     data["bosses"][name] = {
         "respawn_hours": respawn_hours,
-        "tod": iso(utcnow()),
+        "tod": None,
         "warned": False,
         "spawned": False
     }
     save_data(data)
-    await inter.response.send_message(f"✅ {name} added.", ephemeral=True)
+    await inter.response.send_message(f"✅ {name} added. Use /boss_tod when it dies.", ephemeral=True)
 
 
 @tree.command(name="boss_tod")
@@ -192,7 +207,7 @@ async def boss_tod(inter: discord.Interaction, name: str, time: str = None):
     )
 
 
-# ---------------- READY ----------------
+# ---------- READY ----------
 
 @client.event
 async def on_ready():
