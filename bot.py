@@ -1,3 +1,5 @@
+USER_TIMEZONE_OFFSET = 8
+
 import discord
 from discord import app_commands
 from discord.ext import tasks
@@ -8,6 +10,8 @@ import math
 
 TOKEN = os.getenv("TOKEN")
 DATA_FILE = "bosses.json"
+
+USER_TIMEZONE_OFFSET = 8  # <-- CHANGE if not UTC+8
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -31,6 +35,8 @@ def save_data(d):
 data = load_data()
 
 
+# ---------- TIME HELPERS ----------
+
 def utcnow():
     return datetime.now(timezone.utc)
 
@@ -39,7 +45,7 @@ def iso(dt):
     return dt.astimezone(timezone.utc).isoformat()
 
 
-# ---------- EXACT SPAWN MATH (NO DRIFT) ----------
+# ---------- SPAWN CALCULATION (NO DRIFT) ----------
 
 def calculate_next_spawn(tod_iso, respawn_hours):
     tod = datetime.fromisoformat(tod_iso).astimezone(timezone.utc)
@@ -67,7 +73,6 @@ def create_embed():
 
     for name, info in data["bosses"].items():
 
-        # TOD not set yet
         if not info["tod"]:
             embed.add_field(
                 name=name,
@@ -130,18 +135,18 @@ async def send_alerts():
         next_spawn = calculate_next_spawn(info["tod"], info["respawn_hours"])
         remaining = (next_spawn - utcnow()).total_seconds()
 
-        # 10 min warning
+        # 10-minute warning
         if 540 < remaining <= 600 and not info.get("warned"):
             await ch.send(f"⚠️ **{name} spawns in 10 minutes!**")
             info["warned"] = True
 
-        # spawn ping
+        # Spawn ping
         if 0 < remaining <= 60 and not info.get("spawned"):
             mention = f"<@&{role}>" if role else ""
             await ch.send(f"🔥 {mention} **{name} is SPAWNING NOW!**")
             info["spawned"] = True
 
-        # reset flags after window
+        # Reset flags
         if remaining > 600:
             info["warned"] = False
             info["spawned"] = False
@@ -177,7 +182,10 @@ async def boss_add(inter: discord.Interaction, name: str, respawn_hours: int):
         "spawned": False
     }
     save_data(data)
-    await inter.response.send_message(f"✅ {name} added. Use /boss_tod when it dies.", ephemeral=True)
+    await inter.response.send_message(
+        f"✅ {name} added. Use /boss_tod when it dies.",
+        ephemeral=True
+    )
 
 
 @tree.command(name="boss_tod")
@@ -188,23 +196,19 @@ async def boss_tod(inter: discord.Interaction, name: str, time: str = None):
 
     now = utcnow()
 
-    # -------- FIXED TOD LOGIC --------
     if time:
         hh, mm = map(int, time.split(":"))
 
-        # Start with today HH:MM
-        tod = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # Convert user's local HH:MM to UTC
+        tod_local = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        tod_utc = tod_local - timedelta(hours=USER_TIMEZONE_OFFSET)
 
-        # If that time is in the future → TOD was yesterday
-        if tod > now:
-            tod -= timedelta(days=1)
+        if tod_utc > now:
+            tod_utc -= timedelta(days=1)
 
-        # Extra protection for midnight edge case
-        if (now - tod).total_seconds() < 60:
-            tod -= timedelta(days=1)
+        tod = tod_utc
     else:
         tod = now
-    # ----------------------------------
 
     data["bosses"][name]["tod"] = iso(tod)
     save_data(data)
