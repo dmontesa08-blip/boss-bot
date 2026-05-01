@@ -149,7 +149,13 @@ async def alert_loop():
     now = datetime.now(timezone.utc).timestamp()
 
     for name, boss in bosses.items():
-        if not boss["next_spawn"]:
+
+        # ---- SAFE GUARDS (fix crash) ----
+        if "next_spawn" not in boss or not boss["next_spawn"]:
+            continue
+        if "respawn_hours" not in boss:
+            continue
+        if "role_id" not in boss:
             continue
 
         while now >= boss["next_spawn"]:
@@ -161,14 +167,14 @@ async def alert_loop():
         remaining = boss["next_spawn"] - now
         role = channel.guild.get_role(boss["role_id"])
 
-        if remaining <= 600 and not boss["warned"]:
+        if remaining <= 600 and not boss.get("warned", False):
             await channel.send(
                 f"⚠️ {role.mention} **{name}** spawns in 10 minutes!\n{ts(boss['next_spawn'])}"
             )
             boss["warned"] = True
             save_data()
 
-        if remaining <= 0 and not boss["spawned"]:
+        if remaining <= 0 and not boss.get("spawned", False):
             await channel.send(
                 f"🔥 {role.mention} **{name}** SPAWNING NOW!\n{ts(boss['next_spawn'])}"
             )
