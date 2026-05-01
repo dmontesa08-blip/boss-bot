@@ -106,30 +106,29 @@ async def check_alerts():
     for name, info in data["bosses"].items():
         spawn_time = datetime.fromisoformat(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
+        channel = client.get_channel(data["channel_id"])
 
-        # 10-minute warning
-        if 540 < remaining <= 600 and not info.get("warned"):
-            channel = client.get_channel(data["channel_id"])
-            await channel.send(f"⚠️ **{name} spawns in 10 minutes!**")
-            info["warned"] = True
-
-        # Spawn alert
-        if 0 < remaining <= 60 and not info.get("spawned"):
-            channel = client.get_channel(data["channel_id"])
-            mention = f"<@&{role_id}>" if role_id else ""
-            await channel.send(f"🔥 {mention} **{name} is SPAWNING NOW!**")
-
-            # Schedule next spawn
+        # If spawn time already passed → immediately roll to next cycle
+        if remaining <= 0:
             respawn = timedelta(hours=info["respawn_hours"])
             next_spawn = spawn_time + respawn
 
             info["next_spawn"] = next_spawn.isoformat()
             info["warned"] = False
-            info["spawned"] = True
-
-        # Reset flag after 2 minutes
-        if remaining < -120:
             info["spawned"] = False
+            save_data(data)
+            continue
+
+        # 10-minute warning
+        if 540 < remaining <= 600 and not info.get("warned"):
+            await channel.send(f"⚠️ **{name} spawns in 10 minutes!**")
+            info["warned"] = True
+
+        # Spawn alert (real window)
+        if 0 < remaining <= 60 and not info.get("spawned"):
+            mention = f"<@&{role_id}>" if role_id else ""
+            await channel.send(f"🔥 {mention} **{name} is SPAWNING NOW!**")
+            info["spawned"] = True
 
     save_data(data)
 
