@@ -32,6 +32,8 @@ data = load_data()
 
 # ------------------ EMBED ------------------
 
+from datetime import datetime, timezone
+
 def create_embed():
     embed = discord.Embed(
         title="🗡️ Boss Timer Board",
@@ -49,8 +51,13 @@ def create_embed():
         spawn_time = datetime.fromisoformat(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
 
-        if remaining <= 0:
+        # Only show SPAWNING NOW in the real 60s window
+        if 0 <= remaining <= 60:
             status = "🔥 **SPAWNING NOW**"
+        elif remaining < 0:
+            # Already passed, waiting for next cycle update
+            total_minutes = int(abs(remaining) // 60)
+            status = f"⌛ Waiting next cycle ({total_minutes}m ago)"
         else:
             total_minutes = int(remaining // 60)
             hours = total_minutes // 60
