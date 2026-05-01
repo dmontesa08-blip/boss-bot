@@ -30,35 +30,44 @@ def save_data(data):
 data = load_data()
 
 
-# ------------------ EMBED ------------------
+# ------------------ TIME HELPERS ------------------
 
-from datetime import datetime, timezone
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+def parse_time(ts: str):
+    return datetime.fromisoformat(ts).astimezone(timezone.utc)
+
+
+def iso_utc(dt: datetime):
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+# ------------------ EMBED ------------------
 
 def create_embed():
     embed = discord.Embed(
         title="🗡️ Boss Timer Board",
         color=discord.Color.red(),
-        timestamp=datetime.now(timezone.utc)
+        timestamp=utcnow()
     )
-
-    now = datetime.now(timezone.utc)
 
     if not data["bosses"]:
         embed.description = "No bosses added yet."
         return embed
 
+    now = utcnow()
+
     for name, info in data["bosses"].items():
-        spawn_time = datetime.fromisoformat(info["next_spawn"])
+        spawn_time = parse_time(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
 
-        # ✅ Use spawned flag, NOT time
-        if info.get("spawned"):
-            status = "🔥 **SPAWNING NOW**"
-        else:
-            total_minutes = int(remaining // 60)
-            hours = total_minutes // 60
-            minutes = total_minutes % 60
-            status = f"⏳ {hours}h {minutes}m" if hours else f"⏳ {minutes}m"
+        total_minutes = max(0, int(remaining // 60))
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+
+        status = f"⏳ {hours}h {minutes}m" if hours else f"⏳ {minutes}m"
 
         embed.add_field(
             name=name,
@@ -96,31 +105,30 @@ async def refresh_embed():
 
 
 async def check_alerts():
-    now = datetime.now(timezone.utc)
+    now = utcnow()
     role_id = data.get("role_id")
+    channel = client.get_channel(data["channel_id"])
 
     for name, info in data["bosses"].items():
-        spawn_time = datetime.fromisoformat(info["next_spawn"])
+        spawn_time = parse_time(info["next_spawn"])
         remaining = (spawn_time - now).total_seconds()
-        channel = client.get_channel(data["channel_id"])
 
-        # If spawn time already passed → immediately roll to next cycle
+        # Roll to next cycle immediately if passed
         if remaining <= 0:
             respawn = timedelta(hours=info["respawn_hours"])
             next_spawn = spawn_time + respawn
 
-            info["next_spawn"] = next_spawn.isoformat()
+            info["next_spawn"] = iso_utc(next_spawn)
             info["warned"] = False
-            info["spawned"] = False  # ← important
-            save_data(data)
+            info["spawned"] = False
             continue
 
-        # 10-minute warning
+        # 10 min warning
         if 540 < remaining <= 600 and not info.get("warned"):
             await channel.send(f"⚠️ **{name} spawns in 10 minutes!**")
             info["warned"] = True
 
-        # Spawn alert (real window)
+        # Spawn alert
         if 0 < remaining <= 60 and not info.get("spawned"):
             mention = f"<@&{role_id}>" if role_id else ""
             await channel.send(f"🔥 {mention} **{name} is SPAWNING NOW!**")
@@ -159,7 +167,7 @@ async def boss_add(interaction: discord.Interaction, name: str, respawn_hours: i
 
     data["bosses"][name] = {
         "respawn_hours": respawn_hours,
-        "next_spawn": datetime.now(timezone.utc).isoformat(),
+        "next_spawn": iso_utc(utcnow()),
         "warned": False,
         "spawned": False
     }
@@ -176,7 +184,7 @@ async def boss_tod(interaction: discord.Interaction, name: str, time: str = None
         await interaction.followup.send("❌ Boss not found.", ephemeral=True)
         return
 
-    now = datetime.now(timezone.utc)
+    now = utcnow()
 
     if time:
         hh, mm = map(int, time.split(":"))
@@ -189,7 +197,7 @@ async def boss_tod(interaction: discord.Interaction, name: str, time: str = None
     respawn = timedelta(hours=data["bosses"][name]["respawn_hours"])
     next_spawn = tod + respawn
 
-    data["bosses"][name]["next_spawn"] = next_spawn.isoformat()
+    data["bosses"][name]["next_spawn"] = iso_utc(next_spawn)
     data["bosses"][name]["warned"] = False
     data["bosses"][name]["spawned"] = False
 
