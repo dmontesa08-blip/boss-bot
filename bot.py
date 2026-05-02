@@ -144,16 +144,61 @@ async def alert_loop():
             diff = (spawn - now).total_seconds()
             role = f"<@&{boss['role']}>" if boss.get("role") else ""
 
-            # Warning
-            if warning and not boss.get("warned"):
-                if warning * 60 - 10 < diff < warning * 60 + 10:
-                    await channel.send(f"⚠️ {name.title()} in {warning} minutes! {role}")
-                    boss["warned"] = True
+            # Warning Embed
+if warning and not boss.get("warned"):
+    if warning * 60 - 10 < diff < warning * 60 + 10:
+        spawn_ts = int(spawn.timestamp())
 
-            # Spawn
-            if not boss.get("spawned") and -10 < diff < 10:
-                await channel.send(f"🔥 {name.title()} SPAWNING NOW! {role}")
-                boss["spawned"] = True
+        embed = discord.Embed(
+            title="⏰ Boss Spawning Soon",
+            description=f"**{name.title()}** will spawn soon!",
+            color=discord.Color.orange()
+        )
+
+        embed.add_field(
+            name="Spawn Time",
+            value=f"<t:{spawn_ts}:F>",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Time Remaining",
+            value=f"<t:{spawn_ts}:R>",
+            inline=False
+        )
+
+        embed.set_footer(text="Boss Alert System • Prepare your party")
+
+        await channel.send(embed=embed)
+        boss["warned"] = True
+
+
+# Spawn Embed
+if not boss.get("spawned") and -10 < diff < 10:
+    spawn_ts = int(spawn.timestamp())
+
+    embed = discord.Embed(
+        title="🚨 Boss Has Spawned!",
+        description=f"**{name.title()}** is now alive!",
+        color=discord.Color.red()
+    )
+
+    embed.add_field(
+        name="Spawned At",
+        value=f"<t:{spawn_ts}:F>",
+        inline=False
+    )
+
+    embed.add_field(
+        name="Respawn In",
+        value=f"{boss['respawn']} hours",
+        inline=False
+    )
+
+    embed.set_footer(text="Boss Alert System • Hunt now")
+
+    await channel.send(content=role, embed=embed)
+    boss["spawned"] = True
 
         save(data)
 
