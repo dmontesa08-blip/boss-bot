@@ -148,7 +148,7 @@ async def boss(interaction: discord.Interaction, name: str, time: str):
     boss = find_boss(name)
 
     if not boss:
-        await interaction.response.send_message("Boss not found.", ephemeral=True)
+        await interaction.followup.send("message here", ephemeral=True)
         return
 
     try:
