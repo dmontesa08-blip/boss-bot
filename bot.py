@@ -145,6 +145,8 @@ async def boss_list(interaction: discord.Interaction):
 @tree.command(name="boss", description="Set boss TOD (HH:MM)")
 async def boss(interaction: discord.Interaction, name: str, time: str):
 
+    await interaction.response.defer(ephemeral=True):
+
     boss = find_boss(name)
 
     if not boss:
