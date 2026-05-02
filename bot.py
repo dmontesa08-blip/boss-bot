@@ -1,59 +1,68 @@
-from zoneinfo import ZoneInfo
-
-USER_TIMEZONE = ZoneInfo("Asia/Manila")  # <-- change to YOUR country
-
 import os
 import json
 import discord
 from discord import app_commands
 from discord.ext import tasks
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 TOKEN = os.getenv("TOKEN")
-DATA_FILE = "bosses.json"
+DATA_FILE = "data.json"
 
-# ---------- Data ----------
+# -------------------- LOAD / SAVE --------------------
 
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {}
+    return {
+        "config": {
+            "board_channel": None,
+            "alert_channel": None,
+            "board_message": None,
+            "timezone": "UTC"
+        },
+        "bosses": {}
+    }
 
 def save_data():
     with open(DATA_FILE, "w") as f:
-        json.dump(bosses, f, indent=4)
+        json.dump(data, f, indent=4)
 
-bosses = load_data()
+data = load_data()
+bosses = data["bosses"]
 
-BOARD_CHANNEL_ID = None
-ALERT_CHANNEL_ID = None
-BOARD_MESSAGE_ID = None
+# -------------------- HELPERS --------------------
 
-# ---------- Helpers ----------
+def tz():
+    return ZoneInfo(data["config"]["timezone"])
 
 def ts(unix_ts: float) -> str:
     u = int(unix_ts)
     return f"<t:{u}:F> (<t:{u}:R>)"
 
-def parse_tod_to_utc_timestamp(tod_hhmm: str, respawn_hours: int) -> float:
-    now_user = datetime.now(USER_TIMEZONE)
+def time_left_str(unix_ts: float) -> str:
+    now = datetime.now(timezone.utc).timestamp()
+    diff = int(unix_ts - now)
+    if diff <= 0:
+        return "🔥 SPAWNING NOW"
+    h, r = divmod(diff, 3600)
+    m = r // 60
+    return f"⏳ {h}h {m}m"
 
+def parse_tod(tod_hhmm: str, respawn_hours: int) -> float:
+    now_user = datetime.now(tz())
     h, m = map(int, tod_hhmm.split(":"))
 
     tod_user = now_user.replace(hour=h, minute=m, second=0, microsecond=0)
-
-    # If that time is in the future → it was yesterday
     if tod_user > now_user:
         tod_user -= timedelta(days=1)
 
-    # Convert to UTC for storage
     tod_utc = tod_user.astimezone(timezone.utc)
+    next_spawn = tod_utc + timedelta(hours=respawn_hours)
+    return next_spawn.timestamp()
 
-    next_spawn_utc = tod_utc + timedelta(hours=respawn_hours)
-    return next_spawn_utc.timestamp()
-
-# ---------- Discord ----------
+# -------------------- DISCORD --------------------
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -66,19 +75,27 @@ async def on_ready():
     alert_loop.start()
     print("Bot ready.")
 
-# ---------- Commands ----------
+# -------------------- CONFIG COMMANDS --------------------
+
+@tree.command(name="set_timezone")
+async def set_timezone(interaction: discord.Interaction, timezone: str):
+    data["config"]["timezone"] = timezone
+    save_data()
+    await interaction.response.send_message(f"✅ Timezone set to `{timezone}`", ephemeral=True)
 
 @tree.command(name="set_board_channel")
 async def set_board_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    global BOARD_CHANNEL_ID
-    BOARD_CHANNEL_ID = channel.id
-    await interaction.response.send_message("✅ Board channel set.", ephemeral=True)
+    data["config"]["board_channel"] = channel.id
+    save_data()
+    await interaction.response.send_message("✅ Board channel saved.", ephemeral=True)
 
 @tree.command(name="set_alert_channel")
 async def set_alert_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    global ALERT_CHANNEL_ID
-    ALERT_CHANNEL_ID = channel.id
-    await interaction.response.send_message("✅ Alert channel set.", ephemeral=True)
+    data["config"]["alert_channel"] = channel.id
+    save_data()
+    await interaction.response.send_message("✅ Alert channel saved.", ephemeral=True)
+
+# -------------------- BOSS COMMANDS --------------------
 
 @tree.command(name="boss_add")
 async def boss_add(interaction: discord.Interaction, name: str, respawn_hours: int, role: discord.Role):
@@ -87,10 +104,31 @@ async def boss_add(interaction: discord.Interaction, name: str, respawn_hours: i
         "role_id": role.id,
         "next_spawn": None,
         "warned": False,
-        "spawned": False,
+        "spawned": False
     }
     save_data()
     await interaction.response.send_message(f"✅ Boss **{name}** added.", ephemeral=True)
+
+@tree.command(name="boss_remove")
+async def boss_remove(interaction: discord.Interaction, name: str):
+    if name in bosses:
+        del bosses[name]
+        save_data()
+        await interaction.response.send_message(f"🗑️ Boss **{name}** removed.", ephemeral=True)
+    else:
+        await interaction.response.send_message("Boss not found.", ephemeral=True)
+
+@tree.command(name="boss_list")
+async def boss_list(interaction: discord.Interaction):
+    if not bosses:
+        await interaction.response.send_message("No bosses added.", ephemeral=True)
+        return
+
+    msg = ""
+    for n, b in bosses.items():
+        msg += f"**{n}** — {b['respawn_hours']}h\n"
+
+    await interaction.response.send_message(msg, ephemeral=True)
 
 @tree.command(name="boss_tod")
 async def boss_tod(interaction: discord.Interaction, name: str, tod: str):
@@ -98,8 +136,7 @@ async def boss_tod(interaction: discord.Interaction, name: str, tod: str):
         await interaction.response.send_message("Boss not found.", ephemeral=True)
         return
 
-    next_spawn = parse_tod_to_utc_timestamp(tod, bosses[name]["respawn_hours"])
-
+    next_spawn = parse_tod(tod, bosses[name]["respawn_hours"])
     bosses[name]["next_spawn"] = next_spawn
     bosses[name]["warned"] = False
     bosses[name]["spawned"] = False
@@ -110,61 +147,65 @@ async def boss_tod(interaction: discord.Interaction, name: str, tod: str):
         ephemeral=True
     )
 
-# ---------- Board ----------
+# -------------------- BOARD --------------------
 
 @tasks.loop(seconds=60)
 async def update_board():
-    if not BOARD_CHANNEL_ID:
+    cid = data["config"]["board_channel"]
+    if not cid:
         return
 
-    channel = client.get_channel(BOARD_CHANNEL_ID)
+    channel = client.get_channel(cid)
     if not channel:
         return
 
     embed = discord.Embed(title="⚔️ Boss Timer Board", color=0x2f3136)
 
-    for name, boss in bosses.items():
+    # sort by soonest spawn
+    sorted_bosses = sorted(
+        bosses.items(),
+        key=lambda x: x[1]["next_spawn"] or 9999999999
+    )
+
+    for name, boss in sorted_bosses:
         if boss["next_spawn"]:
-            value = f"Spawn: {ts(boss['next_spawn'])}"
+            value = f"Spawn: {ts(boss['next_spawn'])}\n{time_left_str(boss['next_spawn'])}"
         else:
             value = "⏳ Waiting for TOD"
 
         embed.add_field(name=name, value=value, inline=False)
 
-    global BOARD_MESSAGE_ID
+    msg_id = data["config"]["board_message"]
 
     try:
-        if BOARD_MESSAGE_ID:
-            msg = await channel.fetch_message(BOARD_MESSAGE_ID)
+        if msg_id:
+            msg = await channel.fetch_message(msg_id)
             await msg.edit(embed=embed)
         else:
             msg = await channel.send(embed=embed)
-            BOARD_MESSAGE_ID = msg.id
+            data["config"]["board_message"] = msg.id
+            save_data()
     except:
         msg = await channel.send(embed=embed)
-        BOARD_MESSAGE_ID = msg.id
+        data["config"]["board_message"] = msg.id
+        save_data()
 
-# ---------- Alerts ----------
+# -------------------- ALERTS --------------------
 
 @tasks.loop(seconds=30)
 async def alert_loop():
-    if not ALERT_CHANNEL_ID:
+    cid = data["config"]["alert_channel"]
+    if not cid:
         return
 
-    channel = client.get_channel(ALERT_CHANNEL_ID)
+    channel = client.get_channel(cid)
     if not channel:
         return
 
     now = datetime.now(timezone.utc).timestamp()
 
     for name, boss in bosses.items():
-
-        # ---- SAFE GUARDS (fix crash) ----
-        if "next_spawn" not in boss or not boss["next_spawn"]:
-            continue
-        if "respawn_hours" not in boss:
-            continue
-        if "role_id" not in boss:
+        if not boss.get("next_spawn"):
             continue
 
         while now >= boss["next_spawn"]:
@@ -176,17 +217,13 @@ async def alert_loop():
         remaining = boss["next_spawn"] - now
         role = channel.guild.get_role(boss["role_id"])
 
-        if remaining <= 600 and not boss.get("warned", False):
-            await channel.send(
-                f"⚠️ {role.mention} **{name}** spawns in 10 minutes!\n{ts(boss['next_spawn'])}"
-            )
+        if remaining <= 600 and not boss["warned"]:
+            await channel.send(f"⚠️ {role.mention} **{name}** in 10 minutes!\n{ts(boss['next_spawn'])}")
             boss["warned"] = True
             save_data()
 
-        if remaining <= 0 and not boss.get("spawned", False):
-            await channel.send(
-                f"🔥 {role.mention} **{name}** SPAWNING NOW!\n{ts(boss['next_spawn'])}"
-            )
+        if remaining <= 0 and not boss["spawned"]:
+            await channel.send(f"🔥 {role.mention} **{name}** SPAWNING NOW!\n{ts(boss['next_spawn'])}")
             boss["spawned"] = True
             save_data()
 
