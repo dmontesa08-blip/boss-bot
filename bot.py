@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 from datetime import datetime, timedelta, timezone
+pending_tod = {}    
 from zoneinfo import ZoneInfo
 
 TOKEN = os.getenv("TOKEN")
@@ -141,20 +142,27 @@ async def boss_list(interaction: discord.Interaction):
 
     await interaction.response.send_message(msg, ephemeral=True)
 
-@tree.command(name="boss_tod")
-async def boss_tod(interaction: discord.Interaction, name: str, tod: str):
+@tree.command(name="boss", description="Set boss TOD (HH:MM)")
+async def boss(interaction: discord.Interaction, name: str, time: str):
+    name = name.lower()
+
     if name not in bosses:
         await interaction.response.send_message("Boss not found.", ephemeral=True)
         return
 
-    next_spawn = parse_tod(tod, bosses[name]["respawn_hours"])
-    bosses[name]["next_spawn"] = next_spawn
-    bosses[name]["warned"] = False
-    bosses[name]["spawned"] = False
-    save_data()
+    try:
+        hh, mm = map(int, time.split(":"))
+        if not (0 <= hh < 24 and 0 <= mm < 60):
+            raise ValueError
+    except:
+        await interaction.response.send_message("Time must be HH:MM (24h).", ephemeral=True)
+        return
+
+    pending_tod[interaction.user.id] = (name, time)
 
     await interaction.response.send_message(
-        f"✅ TOD saved.\nNext spawn: {ts(next_spawn)}",
+        f"You set TOD **{time}** for **{name.title()}**.\nConfirm?",
+        view=ConfirmTODView(),
         ephemeral=True
     )
 
@@ -242,4 +250,36 @@ async def alert_loop():
             boss["spawned"] = True
             save_data()
 
+class ConfirmTODView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in pending_tod:
+            await interaction.response.send_message("Expired.", ephemeral=True)
+            return
+
+        name, time = pending_tod.pop(interaction.user.id)
+
+        hh, mm = map(int, time.split(":"))
+        now = datetime.now()
+        tod = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+
+        if tod > now:
+            tod -= timedelta(days=1)
+
+        bosses[name]["tod"] = tod.timestamp()
+        save_data()
+
+        await interaction.response.send_message(
+            f"TOD confirmed for **{name.title()}** at {time}.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pending_tod.pop(interaction.user.id, None)
+        await interaction.response.send_message("Cancelled.", ephemeral=True)
+        
 client.run(TOKEN)
