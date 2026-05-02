@@ -20,7 +20,8 @@ def load_data():
             "board_channel": None,
             "alert_channel": None,
             "board_message": None,
-            "timezone": "UTC"
+            "timezone": "UTC",
+            "warning_minutes": 10
         },
         "bosses": {}
     }
@@ -31,11 +32,12 @@ def save_data():
 
 data = load_data()
 bosses = data["bosses"]
+CONFIG = data["config"]
 
 # -------------------- HELPERS --------------------
 
 def tz():
-    return ZoneInfo(data["config"]["timezone"])
+    return ZoneInfo(CONFIG["timezone"])
 
 def ts(unix_ts: float) -> str:
     u = int(unix_ts)
@@ -79,21 +81,30 @@ async def on_ready():
 
 @tree.command(name="set_timezone")
 async def set_timezone(interaction: discord.Interaction, timezone: str):
-    data["config"]["timezone"] = timezone
+    CONFIG["timezone"] = timezone
     save_data()
     await interaction.response.send_message(f"✅ Timezone set to `{timezone}`", ephemeral=True)
 
 @tree.command(name="set_board_channel")
 async def set_board_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    data["config"]["board_channel"] = channel.id
+    CONFIG["board_channel"] = channel.id
     save_data()
     await interaction.response.send_message("✅ Board channel saved.", ephemeral=True)
 
 @tree.command(name="set_alert_channel")
 async def set_alert_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    data["config"]["alert_channel"] = channel.id
+    CONFIG["alert_channel"] = channel.id
     save_data()
     await interaction.response.send_message("✅ Alert channel saved.", ephemeral=True)
+
+@tree.command(name="set_warning")
+async def set_warning(interaction: discord.Interaction, minutes: int):
+    CONFIG["warning_minutes"] = minutes
+    save_data()
+    await interaction.response.send_message(
+        f"⚠️ Warning time set to **{minutes} minutes** before spawn.",
+        ephemeral=True
+    )
 
 # -------------------- BOSS COMMANDS --------------------
 
@@ -151,7 +162,7 @@ async def boss_tod(interaction: discord.Interaction, name: str, tod: str):
 
 @tasks.loop(seconds=60)
 async def update_board():
-    cid = data["config"]["board_channel"]
+    cid = CONFIG["board_channel"]
     if not cid:
         return
 
@@ -161,7 +172,6 @@ async def update_board():
 
     embed = discord.Embed(title="⚔️ Boss Timer Board", color=0x2f3136)
 
-    # sort by soonest spawn
     sorted_bosses = sorted(
         bosses.items(),
         key=lambda x: x[1]["next_spawn"] or 9999999999
@@ -175,7 +185,7 @@ async def update_board():
 
         embed.add_field(name=name, value=value, inline=False)
 
-    msg_id = data["config"]["board_message"]
+    msg_id = CONFIG["board_message"]
 
     try:
         if msg_id:
@@ -183,18 +193,18 @@ async def update_board():
             await msg.edit(embed=embed)
         else:
             msg = await channel.send(embed=embed)
-            data["config"]["board_message"] = msg.id
+            CONFIG["board_message"] = msg.id
             save_data()
     except:
         msg = await channel.send(embed=embed)
-        data["config"]["board_message"] = msg.id
+        CONFIG["board_message"] = msg.id
         save_data()
 
 # -------------------- ALERTS --------------------
 
 @tasks.loop(seconds=30)
 async def alert_loop():
-    cid = data["config"]["alert_channel"]
+    cid = CONFIG["alert_channel"]
     if not cid:
         return
 
@@ -203,6 +213,7 @@ async def alert_loop():
         return
 
     now = datetime.now(timezone.utc).timestamp()
+    warn_seconds = CONFIG.get("warning_minutes", 10) * 60
 
     for name, boss in bosses.items():
         if not boss.get("next_spawn"):
@@ -217,13 +228,17 @@ async def alert_loop():
         remaining = boss["next_spawn"] - now
         role = channel.guild.get_role(boss["role_id"])
 
-        if remaining <= 600 and not boss["warned"]:
-            await channel.send(f"⚠️ {role.mention} **{name}** in 10 minutes!\n{ts(boss['next_spawn'])}")
+        if remaining <= warn_seconds and not boss["warned"]:
+            await channel.send(
+                f"⚠️ {role.mention} **{name}** in {CONFIG['warning_minutes']} minutes!\n{ts(boss['next_spawn'])}"
+            )
             boss["warned"] = True
             save_data()
 
         if remaining <= 0 and not boss["spawned"]:
-            await channel.send(f"🔥 {role.mention} **{name}** SPAWNING NOW!\n{ts(boss['next_spawn'])}")
+            await channel.send(
+                f"🔥 {role.mention} **{name}** SPAWNING NOW!\n{ts(boss['next_spawn'])}"
+            )
             boss["spawned"] = True
             save_data()
 
