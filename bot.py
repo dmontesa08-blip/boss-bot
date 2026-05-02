@@ -144,9 +144,10 @@ async def boss_list(interaction: discord.Interaction):
 
 @tree.command(name="boss", description="Set boss TOD (HH:MM)")
 async def boss(interaction: discord.Interaction, name: str, time: str):
-    name = name.lower()
 
-    if name not in bosses:
+    boss = find_boss(name)
+
+    if not boss:
         await interaction.response.send_message("Boss not found.", ephemeral=True)
         return
 
@@ -158,10 +159,10 @@ async def boss(interaction: discord.Interaction, name: str, time: str):
         await interaction.response.send_message("Time must be HH:MM (24h).", ephemeral=True)
         return
 
-    pending_tod[interaction.user.id] = (name, time)
+    pending_tod[interaction.user.id] = (boss["name"], time)
 
     await interaction.response.send_message(
-        f"You set TOD **{time}** for **{name.title()}**.\nConfirm?",
+        f"You set TOD **{time}** for **{boss['name']}**.\nConfirm?",
         view=ConfirmTODView(),
         ephemeral=True
     )
