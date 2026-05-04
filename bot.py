@@ -62,46 +62,66 @@ def next_scheduled_spawn(schedule, tz):
 # -------------------- Board --------------------
 
 async def update_board(gid):
-    data = await load_data()
+    data = load()
     g = data.get(gid)
     if not g:
         return
 
-    cid = g.get("board_channel")
-    mid = g.get("board_message")
+    channel_id = g.get("board_channel")
+    msg_id = g.get("board_message")
     tz = g.get("timezone", "UTC")
 
-    if not cid or not mid:
+    if not channel_id or not msg_id:
         return
 
-    if mid in message_cache:
-        msg = message_cache[mid]
-    else:
-        channel = bot.get_channel(cid)
-        if not channel:
-            return
-        msg = await channel.fetch_message(mid)
-        message_cache[mid] = msg
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        return
+
+    try:
+        msg = await channel.fetch_message(msg_id)
+    except:
+        return
 
     now = datetime.now(ZoneInfo(tz))
-    desc = ""
+
+    soon_blocks = []
+    upcoming_blocks = []
+    waiting_blocks = []
 
     for name, boss in g.get("bosses", {}).items():
-        ns = boss.get("next_spawn")
-        if not ns:
-            desc += f"**{name.title()}**\n⏳ Waiting for setup\n\n"
+        if not boss.get("tod"):
+            waiting_blocks.append(f"**{name.title()}**")
             continue
 
-        spawn = datetime.fromtimestamp(ns, ZoneInfo(tz))
-        left = spawn - now
+        spawn = calculate_spawn(boss["tod"], boss["respawn"], tz)
+        diff = (spawn - now).total_seconds()
 
-        desc += (
+        block = (
             f"**{name.title()}**\n"
-            f"Spawn: <t:{ns}:F> (<t:{ns}:R>)\n"
-            f"Time Left: {str(left).split('.')[0]}\n\n"
+            f"Spawn: <t:{int(spawn.timestamp())}:F> (<t:{int(spawn.timestamp())}:R>)\n"
         )
 
-    embed = discord.Embed(title="⚔️ Boss Timer Board", description=desc, color=0x2b2d31)
+        if diff <= 3600:
+            soon_blocks.append(block)
+        else:
+            upcoming_blocks.append(block)
+
+    desc = "⚔️ **WORLD BOSS TIMER BOARD** ⚔️\n\n"
+
+    if soon_blocks:
+        desc += "🟢 **Spawning Soon**\n━━━━━━━━━━━━━━━━━━\n"
+        desc += "\n".join(soon_blocks) + "\n\n"
+
+    if upcoming_blocks:
+        desc += "🟡 **Upcoming**\n━━━━━━━━━━━━━━━━━━\n"
+        desc += "\n".join(upcoming_blocks) + "\n\n"
+
+    if waiting_blocks:
+        desc += "⏳ **Waiting for TOD**\n━━━━━━━━━━━━━━━━━━\n"
+        desc += "\n".join(waiting_blocks)
+
+    embed = discord.Embed(description=desc, color=0x2b2d31)
     await msg.edit(embed=embed)
 
 # -------------------- Loops --------------------
