@@ -148,12 +148,16 @@ async def alert_loop():
 
             if warning and not boss.get("warned"):
                 if warning * 60 - 10 < diff < warning * 60 + 10:
-                    await channel.send(f"⚠️ {name.title()} in {warning} minutes! {role}")
-                    boss["warned"] = True
+                ts = int(spawn.timestamp())
+                    await channel.send(f"⚠️ **{name.title()} in {warning} minutes!** {role}\n"
+                    f"Spawn Time: <t:{ts}:F> (<t:{ts}:R>)"
+                )
 
             if not boss.get("spawned") and -10 < diff < 10:
-                await channel.send(f"🔥 {name.title()} SPAWNING NOW! {role}")
-                boss["spawned"] = True
+                ts = int(spawn.timestamp())
+                    await channel.send(f"🔥 **{name.title()} SPAWNING NOW!** {role}\n"
+                    f"Spawn Time: <t:{ts}:F> (<t:{ts}:R>)"
+                )
 
             if diff < -600:
                 boss["next_spawn"] = int(
