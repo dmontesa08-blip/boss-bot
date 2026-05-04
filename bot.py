@@ -62,7 +62,7 @@ def next_scheduled_spawn(schedule, tz):
 # -------------------- Board --------------------
 
 async def update_board(gid):
-    data = load_data()
+    data = await load_data()  # ✅ async fix
     g = data.get(gid)
     if not g:
         return
@@ -88,16 +88,17 @@ async def update_board(gid):
 
     for name, boss in g.get("bosses", {}).items():
 
-        if not boss.get("tod"):
+        ns = boss.get("next_spawn")
+        if not ns:
             waiting_blocks.append(f"**{name.title()}**")
             continue
 
-        spawn = calculate_spawn(boss["tod"], boss["respawn"], tz)
+        spawn = datetime.fromtimestamp(ns, ZoneInfo(tz))
         diff = (spawn - now).total_seconds()
 
         block = (
             f"**{name.title()}**\n"
-            f"Spawn: <t:{int(spawn.timestamp())}:F> (<t:{int(spawn.timestamp())}:R>)\n"
+            f"Spawn: <t:{ns}:F> (<t:{ns}:R>)\n"
         )
 
         if diff <= 3600:
@@ -116,7 +117,7 @@ async def update_board(gid):
         desc += "\n".join(upcoming_blocks) + "\n\n"
 
     if waiting_blocks:
-        desc += "⏳ **Waiting for TOD**\n━━━━━━━━━━━━━━━━━━\n"
+        desc += "⏳ **Waiting for Schedule/TOD**\n━━━━━━━━━━━━━━━━━━\n"
         desc += "\n".join(waiting_blocks)
 
     embed = discord.Embed(description=desc, color=0x2b2d31)
