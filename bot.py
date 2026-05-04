@@ -62,7 +62,7 @@ def next_scheduled_spawn(schedule, tz):
 # -------------------- Board --------------------
 
 async def update_board(gid):
-    data = load()
+    data = load_data()
     g = data.get(gid)
     if not g:
         return
