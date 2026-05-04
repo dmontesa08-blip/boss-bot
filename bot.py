@@ -74,11 +74,8 @@ async def update_board(gid):
     if not channel_id or not msg_id:
         return
 
-    channel = bot.get_channel(channel_id)
-    if not channel:
-        return
-
     try:
+        channel = await bot.fetch_channel(channel_id)
         msg = await channel.fetch_message(msg_id)
     except:
         return
@@ -90,6 +87,7 @@ async def update_board(gid):
     waiting_blocks = []
 
     for name, boss in g.get("bosses", {}).items():
+
         if not boss.get("tod"):
             waiting_blocks.append(f"**{name.title()}**")
             continue
