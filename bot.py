@@ -2,22 +2,19 @@ import os
 import json
 import asyncio
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 
 TOKEN = os.getenv("TOKEN")
-
 DATA_FILE = "data.json"
-BACKUP_FILE = "data_backup.json"
 
 intents = discord.Intents.default()
 intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 data_lock = asyncio.Lock()
 message_cache = {}
 
@@ -30,13 +27,6 @@ def build_mention(boss):
         return f"<@&{boss['role']}>"
     return ""
 
-def validate_time_format(time_str):
-    try:
-        datetime.strptime(time_str, "%H:%M")
-        return True
-    except ValueError:
-        return False
-
 def init_next_spawn(tod_str, respawn, tz):
     now = datetime.now(ZoneInfo(tz))
     hh, mm = map(int, tod_str.split(":"))
@@ -44,24 +34,6 @@ def init_next_spawn(tod_str, respawn, tz):
     if tod > now:
         tod -= timedelta(days=1)
     return int((tod + timedelta(hours=respawn)).timestamp())
-
-def next_scheduled_spawn(schedule, tz):
-    now = datetime.now(ZoneInfo(tz))
-    candidates = []
-
-    for entry in schedule:
-        hh, mm = map(int, entry["time"].split(":"))
-        target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-
-        days_ahead = (entry["weekday"] - now.weekday()) % 7
-        target += timedelta(days=days_ahead)
-
-        if target <= now:
-            target += timedelta(days=7)
-
-        candidates.append(target)
-
-    return int(min(candidates).timestamp())
 
 # -------------------- Storage --------------------
 
@@ -146,10 +118,8 @@ async def alert_loop():
 
             spawn = datetime.fromtimestamp(ns, ZoneInfo(tz))
             diff = (spawn - now).total_seconds()
-
             mention = build_mention(boss)
 
-            # Warning
             if warning and not boss.get("warned"):
                 if warning * 60 - 10 < diff < warning * 60 + 10:
                     ts = int(spawn.timestamp())
@@ -159,7 +129,6 @@ async def alert_loop():
                     )
                     boss["warned"] = True
 
-            # Spawn
             if not boss.get("spawned"):
                 if -10 < diff < 10:
                     ts = int(spawn.timestamp())
@@ -169,13 +138,24 @@ async def alert_loop():
                     )
                     boss["spawned"] = True
 
+    await save_data(bot.guild_data)
+
+# -------------------- Instant Command Sync --------------------
+
+async def sync_commands():
+    for guild in bot.guilds:
+        await bot.tree.sync(guild=guild)
+        print(f"Synced commands to {guild.name}")
+
 # -------------------- Events --------------------
 
 @bot.event
 async def on_ready():
     print("Bot Ready")
+
     bot.guild_data = await load_data()
-    await bot.tree.sync()
+    await sync_commands()
+
     board_loop.start()
     alert_loop.start()
 
@@ -190,7 +170,6 @@ async def boss_add(
     role: str = None
 ):
     gid = str(interaction.guild.id)
-
     bot.guild_data.setdefault(gid, {}).setdefault("bosses", {})
 
     role_value = None
