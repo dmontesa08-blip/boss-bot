@@ -1,3 +1,5 @@
+# --- FULL WORLD BOSS BOT (RESTORED) ---
+
 import os
 import json
 import asyncio
@@ -56,22 +58,20 @@ async def update_board(gid):
     if not g:
         return
 
-    channel_id = g.get("board_channel")
-    msg_id = g.get("board_message")
+    cid = g.get("board_channel")
+    mid = g.get("board_message")
     tz = g.get("timezone", "UTC")
 
-    if not channel_id or not msg_id:
+    if not cid or not mid:
         return
 
-    key = f"{channel_id}:{msg_id}"
+    key = f"{cid}:{mid}"
     msg = message_cache.get(key)
 
     if not msg:
-        channel = await bot.fetch_channel(channel_id)
-        msg = await channel.fetch_message(msg_id)
+        channel = await bot.fetch_channel(cid)
+        msg = await channel.fetch_message(mid)
         message_cache[key] = msg
-
-    now = datetime.now(ZoneInfo(tz))
 
     desc = "⚔️ **WORLD BOSS TIMER BOARD** ⚔️\n\n"
 
@@ -79,14 +79,9 @@ async def update_board(gid):
         ns = boss.get("next_spawn")
         if not ns:
             continue
+        desc += f"**{name.title()}**\nSpawn: <t:{ns}:F> (<t:{ns}:R>)\n\n"
 
-        desc += (
-            f"**{name.title()}**\n"
-            f"Spawn: <t:{ns}:F> (<t:{ns}:R>)\n\n"
-        )
-
-    embed = discord.Embed(description=desc, color=0x2b2d31)
-    await msg.edit(embed=embed)
+    await msg.edit(embed=discord.Embed(description=desc, color=0x2b2d31))
 
 # -------------------- Loops --------------------
 
@@ -106,9 +101,6 @@ async def alert_loop():
             continue
 
         channel = bot.get_channel(cid)
-        if not channel:
-            continue
-
         now = datetime.now(ZoneInfo(tz))
 
         for name, boss in g.get("bosses", {}).items():
@@ -121,55 +113,82 @@ async def alert_loop():
             mention = build_mention(boss)
 
             if warning and not boss.get("warned"):
-                if warning * 60 - 10 < diff < warning * 60 + 10:
-                    ts = int(spawn.timestamp())
+                if warning*60-10 < diff < warning*60+10:
                     await channel.send(
                         f"⚠️ **{name.title()} in {warning} minutes!** {mention}\n"
-                        f"Spawn Time: <t:{ts}:F> (<t:{ts}:R>)"
+                        f"Spawn: <t:{ns}:F> (<t:{ns}:R>)"
                     )
                     boss["warned"] = True
 
-            if not boss.get("spawned"):
-                if -10 < diff < 10:
-                    ts = int(spawn.timestamp())
-                    await channel.send(
-                        f"🔥 **{name.title()} SPAWNING NOW!** {mention}\n"
-                        f"Spawn Time: <t:{ts}:F> (<t:{ts}:R>)"
-                    )
-                    boss["spawned"] = True
+            if not boss.get("spawned") and -10 < diff < 10:
+                await channel.send(
+                    f"🔥 **{name.title()} SPAWNING NOW!** {mention}\n"
+                    f"Spawn: <t:{ns}:F> (<t:{ns}:R>)"
+                )
+                boss["spawned"] = True
 
     await save_data(bot.guild_data)
 
-# -------------------- Instant Command Sync --------------------
+# -------------------- Instant Sync --------------------
 
 async def sync_commands():
     for guild in bot.guilds:
         await bot.tree.sync(guild=guild)
-        print(f"Synced commands to {guild.name}")
 
 # -------------------- Events --------------------
 
 @bot.event
 async def on_ready():
-    print("Bot Ready")
-
     bot.guild_data = await load_data()
     await sync_commands()
-
     board_loop.start()
     alert_loop.start()
+    print("Bot Ready")
 
 # -------------------- Commands --------------------
 
+def admin():
+    return app_commands.checks.has_permissions(administrator=True)
+
+@bot.tree.command(name="set_board_channel")
+@admin()
+async def set_board_channel(inter: discord.Interaction):
+    gid = str(inter.guild.id)
+    bot.guild_data.setdefault(gid, {})
+    bot.guild_data[gid]["board_channel"] = inter.channel.id
+    msg = await inter.channel.send("Boss board initialized...")
+    bot.guild_data[gid]["board_message"] = msg.id
+    await save_data(bot.guild_data)
+    await inter.response.send_message("Board set.", ephemeral=True)
+
+@bot.tree.command(name="set_alert_channel")
+@admin()
+async def set_alert_channel(inter: discord.Interaction):
+    gid = str(inter.guild.id)
+    bot.guild_data.setdefault(gid, {})
+    bot.guild_data[gid]["alert_channel"] = inter.channel.id
+    await save_data(bot.guild_data)
+    await inter.response.send_message("Alert channel set.", ephemeral=True)
+
+@bot.tree.command(name="set_timezone")
+@admin()
+async def set_timezone(inter: discord.Interaction, tz: str):
+    ZoneInfo(tz)
+    bot.guild_data.setdefault(str(inter.guild.id), {})["timezone"] = tz
+    await save_data(bot.guild_data)
+    await inter.response.send_message("Timezone set.", ephemeral=True)
+
+@bot.tree.command(name="set_warning_minutes")
+@admin()
+async def set_warning_minutes(inter: discord.Interaction, minutes: int):
+    bot.guild_data.setdefault(str(inter.guild.id), {})["warning_minutes"] = minutes
+    await save_data(bot.guild_data)
+    await inter.response.send_message("Warning set.", ephemeral=True)
+
 @bot.tree.command(name="boss_add")
-@app_commands.checks.has_permissions(administrator=True)
-async def boss_add(
-    interaction: discord.Interaction,
-    name: str,
-    respawn_hours: int,
-    role: str = None
-):
-    gid = str(interaction.guild.id)
+@admin()
+async def boss_add(inter: discord.Interaction, name: str, respawn_hours: int, role: str = None):
+    gid = str(inter.guild.id)
     bot.guild_data.setdefault(gid, {}).setdefault("bosses", {})
 
     role_value = None
@@ -177,14 +196,11 @@ async def boss_add(
         if role.lower() == "everyone":
             role_value = "everyone"
         else:
-            discord_role = discord.utils.get(interaction.guild.roles, name=role)
-            if not discord_role:
-                await interaction.response.send_message(
-                    "Role not found. Use exact role name or 'everyone'.",
-                    ephemeral=True
-                )
+            r = discord.utils.get(inter.guild.roles, name=role)
+            if not r:
+                await inter.response.send_message("Role not found.", ephemeral=True)
                 return
-            role_value = discord_role.id
+            role_value = r.id
 
     bot.guild_data[gid]["bosses"][name.lower()] = {
         "respawn": respawn_hours,
@@ -195,7 +211,18 @@ async def boss_add(
     }
 
     await save_data(bot.guild_data)
-    await interaction.response.send_message("Boss added.", ephemeral=True)
+    await inter.response.send_message("Boss added.", ephemeral=True)
+
+@bot.tree.command(name="boss_tod")
+@admin()
+async def boss_tod(inter: discord.Interaction, name: str, time: str):
+    gid = str(inter.guild.id)
+    boss = bot.guild_data[gid]["bosses"].get(name.lower())
+    tz = bot.guild_data[gid].get("timezone", "UTC")
+    boss["next_spawn"] = init_next_spawn(time, boss["respawn"], tz)
+    await save_data(bot.guild_data)
+    await update_board(gid)
+    await inter.response.send_message("TOD set.", ephemeral=True)
 
 bot.guild_data = {}
 bot.run(TOKEN)
